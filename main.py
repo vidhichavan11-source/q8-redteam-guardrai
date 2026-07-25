@@ -9,7 +9,9 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-SANDBOX_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox-f007a281e1")
+SANDBOX_ROOT = os.path.realpath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "sandbox-f007a281e1")
+)
 ALLOWED_HOSTS = {"example.com", "www.iana.org"}
 MAX_REDIRECTS = 5
 FETCH_TIMEOUT = 5
