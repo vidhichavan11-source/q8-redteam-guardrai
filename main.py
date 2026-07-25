@@ -157,6 +157,13 @@ def handle_fetch_url(url: str):
             current_url = urljoin(canonical_url, location)
             continue
 
+        # Defense-in-depth: confirm the URL requests actually fetched still
+        # matches a validated, allowlisted host (guards against any hidden
+        # redirect-following behavior inside the HTTP stack itself).
+        fetched_host = (urlsplit(resp.url).hostname or "").lower()
+        if fetched_host not in ALLOWED_HOSTS:
+            return {"action": "block", "reason": "Actual fetched host did not match the validated allowlisted host."}
+
         text = resp.text[:MAX_RESULT_CHARS]
         return {
             "action": "allow",
