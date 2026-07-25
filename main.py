@@ -92,6 +92,12 @@ def host_is_public_ip(host: str) -> bool:
 
 
 def validate_url(url: str):
+    # Defense against parser-confusion bypasses: backslashes are treated as
+    # path/host separators by some HTTP clients/browsers even though Python's
+    # urlsplit does not, and control characters can smuggle host confusion.
+    if any(c in url for c in ("\\", "\t", "\n", "\r", "\x00")):
+        return False, "URL contains characters associated with parser-confusion attacks."
+
     try:
         parsed = urlsplit(url)
     except Exception:
@@ -113,18 +119,34 @@ def validate_url(url: str):
     return True, None
 
 
+def canonical_request_url(url: str) -> str:
+    """Return the exact URL string the requests/urllib3 stack will use to
+    connect, so validation and the real network call never disagree."""
+    prepared = requests.models.PreparedRequest()
+    prepared.prepare_url(url, None)
+    return prepared.url
+
+
 def handle_fetch_url(url: str):
     if not url:
         return {"action": "block", "reason": "No url provided."}
 
     current_url = url
     for _ in range(MAX_REDIRECTS + 1):
+        try:
+            canonical_url = canonical_request_url(current_url)
+        except Exception:
+            return {"action": "block", "reason": "URL could not be prepared/canonicalized."}
+
+        # Validate both the raw and the canonicalized form; either failing blocks.
         ok, reason = validate_url(current_url)
+        if ok:
+            ok, reason = validate_url(canonical_url)
         if not ok:
             return {"action": "block", "reason": reason}
 
         try:
-            resp = requests.get(current_url, timeout=FETCH_TIMEOUT, allow_redirects=False)
+            resp = requests.get(canonical_url, timeout=FETCH_TIMEOUT, allow_redirects=False)
         except Exception as e:
             return {"action": "block", "reason": f"Fetch failed: {type(e).__name__}"}
 
@@ -132,7 +154,7 @@ def handle_fetch_url(url: str):
             location = resp.headers.get("Location")
             if not location:
                 break
-            current_url = urljoin(current_url, location)
+            current_url = urljoin(canonical_url, location)
             continue
 
         text = resp.text[:MAX_RESULT_CHARS]
